@@ -260,3 +260,6 @@ week_1/terraform/keys/
 *.parquet
 *.csv
 *.hcl
+
+/Users/lukasz/Documents/Projects/data-engineering-zoomcamp/04-analytics-engineering/taxi_rides_ny/taxi_rides_ny.duckdb
+/Users/lukasz/Documents/Projects/data-engineering-zoomcamp/04-analytics-engineering/taxi_rides_ny/data/
