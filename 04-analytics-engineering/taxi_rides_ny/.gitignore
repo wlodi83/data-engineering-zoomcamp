@@ -9,3 +9,5 @@ data/
 # DuckDB database
 *.duckdb
 *.duckdb.wal
+
+.claude/
