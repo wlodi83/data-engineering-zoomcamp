@@ -265,3 +265,8 @@ week_1/terraform/keys/
 /Users/lukasz/Documents/Projects/data-engineering-zoomcamp/04-analytics-engineering/taxi_rides_ny/data/
 
 .claude/
+.bruin.yml
+logs/runs
+logs/*.log
+*.py[cod]
+logs/queries
