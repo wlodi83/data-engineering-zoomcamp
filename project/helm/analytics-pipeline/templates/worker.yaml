@@ -1,0 +1,70 @@
+{{/* Prefect Worker — long-running Deployment that polls for flow runs */}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Chart.Name }}-worker
+  labels:
+    app: {{ .Chart.Name }}
+    component: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Chart.Name }}
+      component: worker
+  template:
+    metadata:
+      labels:
+        app: {{ .Chart.Name }}
+        component: worker
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      containers:
+        - name: prefect-worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["prefect", "worker", "start", "--pool", {{ .Values.prefect.workPool | quote }}, "--type", "kubernetes"]
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          env:
+            - name: PREFECT_API_URL
+              value: {{ .Values.prefect.apiUrl | quote }}
+            - name: PREFECT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.prefect.apiKeySecret.name }}
+                  key: {{ .Values.prefect.apiKeySecret.key }}
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            - name: SOURCE_DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.sourceDbSecret.name }}
+                  key: {{ .Values.sourceDbSecret.keys.host }}
+            - name: SOURCE_DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.sourceDbSecret.name }}
+                  key: {{ .Values.sourceDbSecret.keys.port }}
+            - name: SOURCE_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.sourceDbSecret.name }}
+                  key: {{ .Values.sourceDbSecret.keys.database }}
+            - name: SOURCE_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.sourceDbSecret.name }}
+                  key: {{ .Values.sourceDbSecret.keys.username }}
+            - name: SOURCE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.sourceDbSecret.name }}
+                  key: {{ .Values.sourceDbSecret.keys.password }}
+            - name: PII_HASH_SALT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.piiHashSalt.secretName }}
+                  key: {{ .Values.piiHashSalt.key }}

@@ -1,0 +1,9 @@
+aws_region            = "eu-central-1"
+environment           = "production"
+s3_bucket_name        = "pushmetrics-analytics-lake"
+glue_database_name    = "pushmetrics_analytics"
+athena_workgroup_name = "pushmetrics-analytics"
+
+# Get these from: aws eks describe-cluster --name prod-6 --query "cluster.identity.oidc"
+eks_oidc_provider_arn = "arn:aws:iam::oidc-provider/oidc.eks.eu-central-1.amazonaws.com/id/EXAMPLE"
+eks_oidc_provider     = "oidc.eks.eu-central-1.amazonaws.com/id/EXAMPLE"

@@ -1,0 +1,9 @@
+[runtime]
+log_level = "INFO"
+
+[destination.filesystem]
+bucket_url = "s3://pushmetrics-analytics-lake/raw/"
+
+[destination.filesystem.credentials]
+# Uses AWS credentials from environment (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+# or IAM role when running on EKS

@@ -1,0 +1,60 @@
+# Prefect Worker deployment on EKS
+# The worker picks up flow runs from Prefect Cloud and executes them as K8s Jobs
+
+image:
+  repository: <aws-account-id>.dkr.ecr.eu-central-1.amazonaws.com/pushmetrics-analytics-pipeline
+  tag: latest
+  pullPolicy: Always
+
+prefect:
+  # Prefect Cloud connection
+  apiUrl: "https://api.prefect.cloud/api/accounts/<account-id>/workspaces/<workspace-id>"
+  apiKeySecret:
+    name: prefect-api-key
+    key: api-key
+  workPool: "eks-analytics"
+
+serviceAccount:
+  name: analytics-pipeline
+  annotations:
+    eks.amazonaws.com/role-arn: ""  # Set to terraform output pipeline_role_arn
+
+# Worker pod resources
+worker:
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "250m"
+
+# Flow run job resources (the actual pipeline execution)
+flowRun:
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+
+env:
+  AWS_REGION: "eu-central-1"
+  S3_BUCKET: "pushmetrics-analytics-lake"
+  ATHENA_DATABASE: "pushmetrics_analytics"
+  ATHENA_WORKGROUP: "pushmetrics-analytics"
+
+# Source database credentials (from existing K8s secret)
+sourceDbSecret:
+  name: pushmetrics-analytics-db
+  keys:
+    host: db-host
+    port: db-port
+    database: db-name
+    username: db-user
+    password: db-password
+
+piiHashSalt:
+  secretName: pushmetrics-analytics-secrets
+  key: pii-hash-salt

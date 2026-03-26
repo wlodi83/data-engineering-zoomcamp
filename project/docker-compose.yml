@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  # Local source database (mirrors PushMetrics schema for development)
+  source-db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: pushmetrics_dev
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: devpassword
+    ports:
+      - "5434:5432"
+    volumes:
+      - source_data:/var/lib/postgresql/data
+      - ./seed/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+volumes:
+  source_data:

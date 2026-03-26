@@ -1,0 +1,29 @@
+version: 2
+
+models:
+  - name: workflow_health
+    description: >
+      Daily workflow health metrics: success rates, duration percentiles.
+      Primary dashboard tile (temporal distribution).
+    columns:
+      - name: execution_date
+        tests: [unique, not_null]
+      - name: success_rate_pct
+        description: Percentage of successful workflow executions
+
+  - name: block_performance
+    description: >
+      Block performance metrics by type and date.
+      Primary dashboard tile (categorical distribution).
+    columns:
+      - name: block_type
+        tests: [not_null]
+      - name: execution_date
+        tests: [not_null]
+
+  - name: platform_adoption
+    description: >
+      Platform adoption trends: new reports, blocks, active workspaces over time.
+    columns:
+      - name: date
+        tests: [unique, not_null]

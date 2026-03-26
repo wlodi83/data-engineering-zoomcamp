@@ -1,0 +1,55 @@
+version: 2
+
+sources:
+  - name: raw
+    description: Raw data extracted by dlt from PushMetrics PostgreSQL
+    database: pushmetrics_analytics
+    schema: raw
+    tables:
+      - name: workflow_log
+        description: Workflow execution history
+      - name: block_execution
+        description: Block-level execution tracking
+      - name: noteflow_run
+        description: Noteflow run instances
+      - name: block
+        description: Block definitions
+      - name: report
+        description: Report metadata
+      - name: workflow
+        description: Workflow configurations
+      - name: logs
+        description: Platform action logs (user IDs anonymized)
+
+models:
+  - name: stg_workflow_logs
+    description: Cleaned workflow execution logs with derived duration and success fields
+    columns:
+      - name: workflow_log_id
+        tests: [unique, not_null]
+      - name: execution_date
+        tests: [not_null]
+
+  - name: stg_block_executions
+    description: Cleaned block execution records with derived metrics
+    columns:
+      - name: block_execution_id
+        tests: [unique, not_null]
+
+  - name: stg_noteflow_runs
+    description: Cleaned noteflow run records
+    columns:
+      - name: run_id
+        tests: [unique, not_null]
+
+  - name: stg_blocks
+    description: Block inventory with type classification
+    columns:
+      - name: block_id
+        tests: [unique, not_null]
+
+  - name: stg_reports
+    description: Report metadata
+    columns:
+      - name: report_id
+        tests: [unique, not_null]

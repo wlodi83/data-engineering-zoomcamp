@@ -1,0 +1,35 @@
+# Environment
+.env
+*.pyc
+__pycache__/
+venv/
+
+# dlt
+.dlt/secrets.toml
+pipeline/.dlt/
+pipeline/secrets.toml
+_storage/
+
+# dbt
+transform/target/
+transform/dbt_packages/
+transform/logs/
+
+# Data files (never commit raw data)
+*.parquet
+*.csv
+explore/data/
+duckdb.db
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate*
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
