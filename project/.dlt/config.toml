@@ -2,4 +2,4 @@
 log_level = "INFO"
 
 [destination.filesystem]
-bucket_url = "_storage"
+bucket_url = "s3://pushmetrics-analytics-lake/raw/"

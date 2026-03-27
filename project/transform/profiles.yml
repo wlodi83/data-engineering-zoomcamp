@@ -6,6 +6,6 @@ pushmetrics_analytics:
       s3_staging_dir: "s3://pushmetrics-analytics-lake/athena-results/"
       s3_data_dir: "s3://pushmetrics-analytics-lake/dbt/"
       region_name: "eu-central-1"
-      database: "pushmetrics_analytics"
-      schema: "dbt"
+      database: "AwsDataCatalog"
+      schema: "pushmetrics_analytics"
       work_group: "pushmetrics-analytics"

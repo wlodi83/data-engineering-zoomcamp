@@ -3,8 +3,8 @@ version: 2
 sources:
   - name: raw
     description: Raw data extracted by dlt from PushMetrics PostgreSQL
-    database: pushmetrics_analytics
-    schema: raw
+    database: AwsDataCatalog
+    schema: pushmetrics_analytics
     tables:
       - name: workflow_log
         description: Workflow execution history

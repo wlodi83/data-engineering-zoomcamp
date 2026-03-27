@@ -8,11 +8,8 @@ terraform {
     }
   }
 
-  backend "s3" {
-    bucket = "pushmetrics-terraform-state"
-    key    = "analytics-pipeline/terraform.tfstate"
-    region = "eu-central-1"
-  }
+  # Using local backend for course project
+  # For production, switch to S3 backend
 }
 
 provider "aws" {
@@ -91,7 +88,7 @@ resource "aws_athena_workgroup" "analytics" {
       output_location = "s3://${aws_s3_bucket.data_lake.id}/athena-results/"
 
       encryption_configuration {
-        encryption_option = "SSE_KMS"
+        encryption_option = "SSE_S3"
       }
     }
 
@@ -126,6 +123,13 @@ resource "aws_iam_role" "pipeline" {
             "${var.eks_oidc_provider}:sub" = "system:serviceaccount:analytics:analytics-pipeline"
           }
         }
+      },
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "glue.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
       }
     ]
   })
