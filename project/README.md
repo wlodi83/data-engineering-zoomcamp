@@ -1,10 +1,10 @@
 # PushMetrics Platform Analytics Pipeline
 
-End-to-end data engineering pipeline that extracts operational metrics from the PushMetrics Query.me platform, loads them into a columnar data lake on S3, and serves analytics via AWS Athena + dbt transformations.
+End-to-end data engineering pipeline that extracts operational metrics from the [PushMetrics](https://pushmetrics.io) platform, loads them into a columnar data lake on S3, and serves analytics via AWS Athena + dbt transformations.
 
 ## Problem Statement
 
-PushMetrics Query.me is a collaborative SQL editor and reporting platform. As usage grows, we need visibility into:
+[PushMetrics](https://pushmetrics.io) is a collaborative SQL editor and reporting platform. As usage grows, we need visibility into:
 
 - **Workflow reliability** — Which workflows fail most? What's the average execution time trend?
 - **Block performance** — Which block types are slowest? Where are the bottlenecks?
