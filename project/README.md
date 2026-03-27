@@ -18,21 +18,28 @@ This pipeline answers these questions by building an automated, daily analytics 
 PostgreSQL (source database)
     │
     ▼
-[Extraction] ─── dlt (incremental, with PII anonymization)
-    │
+[Extraction] ─── dlt (incremental loads, PII anonymization)
+    │              9 tables, column allowlists, hashed user IDs
     ▼
-[Data Lake] ──── S3 (Parquet, partitioned by date + workspace)
+[Data Lake] ──── S3 (Parquet format, columnar storage)
+    │              s3://pushmetrics-analytics-lake/raw/raw/{table}/
     │              + DuckDB for local ad-hoc exploration
     ▼
-[Warehouse] ──── AWS Athena (serverless, columnar via Parquet)
-    │              + AWS Glue Data Catalog
+[Warehouse] ──── AWS Athena (serverless, columnar queries on Parquet)
+    │              + AWS Glue Data Catalog (9 external tables)
+    │              Parquet columnar format for predicate pushdown
+    │              Tables organized by entity for query optimization
     ▼
 [Transforms] ─── dbt (dbt-athena adapter)
     │              staging (5 views) → marts (3 tables)
+    │              17 data quality tests
     ▼
-[Dashboard] ──── Tableau Public
+[Dashboard] ──── Tableau Public (2 tiles: temporal + categorical)
     │
-[Orchestration] ─ Prefect 3 (Prefect Cloud for monitoring + scheduling)
+[Orchestration] ─ Prefect 3 (3-task DAG, Prefect Cloud monitoring)
+    │              extract → transform → test (with retries)
+    ▼
+[IaC] ────────── Terraform (S3, Glue, Athena, IAM — 11 resources)
 ```
 
 ## Dashboard
@@ -215,6 +222,29 @@ python -m pipeline.flow    # Flow runs are tracked in Prefect Cloud UI
 python explore/analysis.py
 ```
 
+## Data Warehouse: Partitioning & Clustering
+
+Athena queries S3 Parquet files directly. Optimization is achieved through:
+
+**Columnar Storage (Parquet)**
+- All data is stored in Parquet format, which provides columnar compression and predicate pushdown
+- Athena only reads the columns needed for each query, reducing data scanned and cost
+- Parquet row groups act as natural clustering — data within each file is organized by insertion order
+
+**Table Organization (Partitioning)**
+- Data is organized in S3 by table: `s3://bucket/raw/raw/{table_name}/*.parquet`
+- dlt writes incremental load files per table, so Athena scans only the relevant table directory
+- dbt mart tables are materialized as separate Athena tables in `pushmetrics_analytics_marts`, stored in `s3://bucket/dbt/` with their own Parquet files
+
+**Query Optimization**
+- Staging models are Athena **views** (no data duplication, zero storage cost)
+- Mart models are Athena **tables** (materialized Parquet for fast dashboard queries)
+- The `workflow_health` mart aggregates by `execution_date` — downstream Tableau queries filter by date range, which benefits from Parquet's min/max statistics for predicate pushdown
+- The `block_performance` mart aggregates by `block_type` — categorical queries scan a small materialized table (~170 rows) rather than the full 500-row raw table
+
+**Why not Hive-style partitioning?**
+At our current data volume (~1,850 rows across 9 tables), Hive-style partitioning (e.g., `execution_date=2026-03-01/`) would create excessive small files that hurt Athena performance. Parquet's built-in row group statistics provide sufficient pruning. As data grows past 1M+ rows, adding Hive partitions by date would be the next optimization step.
+
 ## dbt Models
 
 ### Staging (5 views)
@@ -238,19 +268,64 @@ python explore/analysis.py
 
 ## Reproducibility
 
+### Step-by-step from a clean clone
+
 ```bash
-# Full setup from scratch
-docker-compose up -d                          # Start local Postgres
-pyenv local 3.12.11 && python -m venv venv && source venv/bin/activate
+# 1. Clone and enter project
+git clone https://github.com/wlodi83/data-engineering-zoomcamp.git
+cd data-engineering-zoomcamp/project
+
+# 2. Start local source database (Docker required)
+docker-compose up -d                          # PostgreSQL on port 5434 with seed data
+
+# 3. Python environment (pyenv recommended, Python 3.12+)
+pyenv local 3.12.11                           # Or use any Python 3.12+
+python -m venv venv
+source venv/bin/activate
 pip install -r pipeline/requirements.txt
-cd terraform && terraform init && terraform apply  # AWS resources
+
+# 4. Configure credentials
+cp .env.example .env                          # Edit with your values
+mkdir -p .dlt
+cp pipeline/secrets.toml.example .dlt/secrets.toml
+# Edit .dlt/secrets.toml:
+#   [sources.pushmetrics.credentials] — PostgreSQL connection (localhost:5434 for local)
+#   [destination.filesystem.credentials] — region_name = "eu-central-1"
+
+# 5. Provision AWS infrastructure (Terraform required)
+cd terraform
+cp terraform.tfvars.example terraform.tfvars  # Fill in AWS account + EKS OIDC values
+terraform init && terraform apply
 cd ..
-python -m pipeline.extract                    # Extract to S3
-python -m pipeline.create_athena_tables       # Register tables in Athena
+
+# 6. Run extraction (loads data to S3)
+python -m pipeline.extract
+
+# 7. Create Athena tables (registers S3 Parquet files in Glue catalog)
+python -m pipeline.create_athena_tables
+
+# 8. Run dbt transformations + tests
 ./venv/bin/dbt run --project-dir transform --profiles-dir transform
 ./venv/bin/dbt test --project-dir transform --profiles-dir transform
-prefect cloud login && python -m pipeline.flow  # Full orchestrated run
+
+# 9. Run full orchestrated pipeline via Prefect
+prefect cloud login                           # Free tier account required
+python -m pipeline.flow                       # Runs extract → transform → test
+
+# 10. View results
+# - Prefect Cloud UI: flow run with 3 completed tasks
+# - Athena console: query pushmetrics_analytics_marts tables
+# - Dashboard: https://public.tableau.com/app/profile/lukasz7958/viz/PushmetricsDWH/PushMetricsPlatformAnalyticsDashboard
 ```
+
+### What you need
+| Requirement | Purpose |
+|---|---|
+| Docker | Local PostgreSQL with seed data |
+| Python 3.12+ | Pipeline runtime |
+| AWS account | S3, Athena, Glue, IAM |
+| Terraform >= 1.5 | Infrastructure provisioning |
+| Prefect Cloud (free) | Orchestration monitoring |
 
 ## Design Decisions
 
