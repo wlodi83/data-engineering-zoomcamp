@@ -15,7 +15,7 @@ This pipeline answers these questions by building an automated, daily analytics 
 ## Architecture
 
 ```
-PostgreSQL (staging read replica)
+PostgreSQL (source database)
     │
     ▼
 [Extraction] ─── dlt (incremental, with PII anonymization)
@@ -26,16 +26,44 @@ PostgreSQL (staging read replica)
     ▼
 [Warehouse] ──── AWS Athena (serverless, columnar via Parquet)
     │              + AWS Glue Data Catalog
-    │              Partitioned by execution_date
-    │              Clustered via Parquet row groups by workspace_id
     ▼
 [Transforms] ─── dbt (dbt-athena adapter)
-    │              staging → intermediate → marts
+    │              staging (5 views) → marts (3 tables)
     ▼
-[Dashboard] ──── Tableau (JDBC → Athena)
+[Dashboard] ──── Tableau Public
     │
-[Orchestration] ─ Prefect (flow on EKS via Kubernetes work pool)
-                   Prefect Cloud for scheduling, monitoring, retries
+[Orchestration] ─ Prefect 3 (Prefect Cloud for monitoring + scheduling)
+```
+
+## Dashboard
+
+**[View live dashboard on Tableau Public](https://public.tableau.com/app/profile/lukasz7958/viz/PushmetricsDWH/PushMetricsPlatformAnalyticsDashboard)**
+
+![Tableau Dashboard](screenshots/tableau_dashboard.png)
+
+Two main views:
+
+1. **Workflow Health** (temporal) — Daily workflow success rate over time, showing reliability trends
+2. **Block Performance** (categorical) — Execution count by block type (chart, email, s3, slack, sql, text)
+
+## Orchestration
+
+The pipeline uses **Prefect 3** for orchestration, tracked in **Prefect Cloud**:
+
+![Prefect Pipeline Run](screenshots/prefect_pipeline_run.png)
+
+- **Flow**: `pushmetrics-analytics` — 3 tasks (extract → transform → test)
+- **Retries**: Extraction retries 2x (60s delay), transforms retry 1x (30s delay)
+- **Monitoring**: Prefect Cloud UI shows run history, logs, task durations
+
+```
+Prefect Cloud (monitoring + scheduling)
+    │
+    ▼
+Pipeline Flow (local or K8s)
+    ├── Task 1: dlt extract (PG → S3 Parquet)
+    ├── Task 2: dbt run (staging → marts on Athena)
+    └── Task 3: dbt test (data quality validation)
 ```
 
 ## Tech Stack
@@ -47,8 +75,8 @@ PostgreSQL (staging read replica)
 | Warehouse | AWS Athena | Serverless, queries S3 Parquet directly, ~$0 at our data volume |
 | Catalog | AWS Glue | Required by Athena, Terraform-managed |
 | Transforms | dbt (dbt-athena) | Industry standard, version-controlled SQL transformations |
-| Dashboard | Tableau | Existing team expertise, JDBC connector to Athena |
-| Orchestration | Prefect + EKS | Flow-based orchestration with retries, scheduling, and monitoring via Prefect Cloud; worker runs on existing EKS cluster |
+| Dashboard | Tableau Public | Interactive dashboards, publicly shareable |
+| Orchestration | Prefect 3 + Prefect Cloud | Flow-based orchestration with retries and monitoring |
 | IaC | Terraform | S3 bucket, Glue database, Athena workgroup, IAM roles |
 | Exploration | DuckDB | Local Parquet analysis without Athena costs |
 
@@ -84,10 +112,10 @@ project/
 ├── pipeline/
 │   ├── __init__.py
 │   ├── flow.py                     # Prefect flow (extract → transform → test)
-│   ├── deployment.py               # Prefect deployment config (K8s work pool)
 │   ├── extract.py                  # dlt pipeline definition
 │   ├── anonymize.py                # PII hashing utilities
 │   ├── sources.py                  # dlt source/resource definitions
+│   ├── create_athena_tables.py     # Create Athena external tables
 │   ├── config.toml                 # dlt configuration
 │   ├── secrets.toml.example        # dlt secrets template
 │   └── requirements.txt            # Python dependencies
@@ -96,17 +124,15 @@ project/
 │   ├── profiles.yml
 │   └── models/
 │       ├── staging/                # stg_workflow_logs, stg_block_executions, ...
-│       ├── intermediate/           # Joined/enriched models
 │       └── marts/                  # workflow_health, block_performance, platform_adoption
 ├── explore/
-│   └── analysis.py                 # DuckDB exploration scripts
+│   ├── analysis.py                 # DuckDB exploration scripts
+│   └── export_csvs.py             # Export Athena marts to CSV
+├── screenshots/
+│   ├── prefect_pipeline_run.png    # Prefect Cloud flow run
+│   └── tableau_dashboard.png       # Tableau Public dashboard
 ├── helm/
-│   └── analytics-pipeline/
-│       ├── Chart.yaml
-│       ├── values.yaml
-│       └── templates/
-│           ├── worker.yaml         # Prefect worker Deployment (polls for flow runs)
-│           └── configmap.yaml      # Pipeline configuration
+│   └── analytics-pipeline/         # Helm chart for K8s deployment
 └── .github/
     └── workflows/
         └── ci.yml                  # Lint, test, build + push Docker image
@@ -118,114 +144,112 @@ project/
 
 - AWS account with permissions for S3, Glue, Athena, IAM
 - Terraform >= 1.5
-- Python 3.11+
+- Python 3.12+ (pyenv recommended)
 - Docker
-- kubectl + Helm (for EKS deployment)
 - Prefect Cloud account (free tier)
-- Access to PushMetrics staging database (read replica)
 
 ### 1. Infrastructure
 
 ```bash
 cd terraform
-cp terraform.tfvars.example terraform.tfvars  # Set your AWS region, bucket name, etc.
+cp terraform.tfvars.example terraform.tfvars  # Set your AWS region, EKS OIDC values
 terraform init
 terraform plan
 terraform apply
 ```
 
-### 2. Prefect Cloud Setup
+This creates: S3 bucket, Glue database, Athena workgroup, IAM role with S3/Glue/Athena policies.
+
+### 2. Local Development
 
 ```bash
-pip install prefect
-prefect cloud login                           # Authenticate with Prefect Cloud
+# Start local source database
+docker-compose up -d
 
-# Create the Kubernetes work pool
-prefect work-pool create eks-analytics --type kubernetes
-```
-
-### 3. Local Development
-
-```bash
-cp .env.example .env                          # Fill in database credentials
+# Create Python environment
+pyenv local 3.12.11
+python -m venv venv
+source venv/bin/activate
 pip install -r pipeline/requirements.txt
 
-# Run the full flow locally
-make flow
-
-# Or run individual steps
-make extract
-make transform
+# Configure credentials
+cp .env.example .env                          # Fill in database credentials
+cp pipeline/secrets.toml.example .dlt/secrets.toml  # Fill in PostgreSQL + AWS credentials
 ```
 
-### 4. Explore with DuckDB
+### 3. Run the Pipeline
 
 ```bash
-python explore/analysis.py                    # Query Parquet files locally
+# Run extraction only
+python -m pipeline.extract
+
+# Run full Prefect flow (extract → transform → test)
+python -m pipeline.flow
 ```
 
-### 5. Register Deployment
+### 4. Create Athena Tables
+
+After the first extraction to S3:
 
 ```bash
-make register                                 # Register flow + schedule with Prefect Cloud
+python -m pipeline.create_athena_tables
 ```
 
-### 6. Deploy Worker to EKS
+### 5. Run dbt
 
 ```bash
-# Create Prefect API key secret
-kubectl create namespace analytics
-kubectl -n analytics create secret generic prefect-api-key \
-  --from-literal=api-key=<your-prefect-api-key>
-
-# Deploy the worker
-make deploy
+./venv/bin/dbt run --project-dir transform --profiles-dir transform
+./venv/bin/dbt test --project-dir transform --profiles-dir transform
 ```
 
-## Orchestration
+### 6. Prefect Cloud
 
-The pipeline uses **Prefect** for orchestration:
-
-- **Flow**: `pushmetrics-analytics` — 3 tasks (extract → transform → test)
-- **Schedule**: Daily at 4:00 AM UTC via Prefect Cloud
-- **Worker**: Runs as a Kubernetes Deployment on EKS, polls Prefect Cloud for scheduled runs
-- **Execution**: Each flow run creates a K8s Job with the pipeline Docker image
-- **Retries**: Extraction retries 2x (60s delay), transforms retry 1x (30s delay)
-- **Monitoring**: Prefect Cloud UI shows run history, logs, task durations, failure alerts
-
-```
-Prefect Cloud (schedule + UI)
-    │
-    │  polls for scheduled runs
-    ▼
-Prefect Worker (K8s Deployment on EKS)
-    │
-    │  creates K8s Job for each flow run
-    ▼
-Pipeline Job (K8s Job)
-    ├── Task 1: dlt extract (PG → S3 Parquet)
-    ├── Task 2: dbt run (staging → marts on Athena)
-    └── Task 3: dbt test (data quality validation)
+```bash
+prefect cloud login
+python -m pipeline.flow    # Flow runs are tracked in Prefect Cloud UI
 ```
 
-## Dashboard
+### 7. Explore with DuckDB
 
-Tableau connects to Athena via JDBC. Two main views:
+```bash
+python explore/analysis.py
+```
 
-1. **Workflow Health** (temporal) — Daily success/failure rates, average execution duration trend, P95 latency
-2. **Block Performance** (categorical) — Execution count and avg duration by block type, failure rate heatmap
+## dbt Models
+
+### Staging (5 views)
+| Model | Source | Derived Fields |
+|---|---|---|
+| `stg_workflow_logs` | `workflow_log` | `duration_seconds`, `is_success`, `execution_date` |
+| `stg_block_executions` | `block_execution` | `duration_seconds`, `is_success`, `execution_date` |
+| `stg_noteflow_runs` | `noteflow_run` | `duration_seconds`, `is_success`, `execution_date` |
+| `stg_blocks` | `block` | `created_date` |
+| `stg_reports` | `report` | `created_date` |
+
+### Marts (3 tables)
+| Model | Purpose | Dashboard Tile |
+|---|---|---|
+| `workflow_health` | Daily success rate, avg/p50/p95 duration | Workflow Health (temporal) |
+| `block_performance` | Executions and success rate by block type | Block Performance (categorical) |
+| `platform_adoption` | Daily new reports, blocks, active workspaces | — |
+
+### Data Tests
+17 data tests validate uniqueness and not-null constraints across all models.
 
 ## Reproducibility
 
 ```bash
-# Full local run (requires Docker + AWS credentials)
-make setup          # Terraform + install deps
-make flow           # Run full Prefect flow locally
-make explore        # Open DuckDB analysis
-
-# Deploy to EKS
-make register       # Register deployment with Prefect Cloud
-make deploy         # Deploy Prefect worker to EKS
+# Full setup from scratch
+docker-compose up -d                          # Start local Postgres
+pyenv local 3.12.11 && python -m venv venv && source venv/bin/activate
+pip install -r pipeline/requirements.txt
+cd terraform && terraform init && terraform apply  # AWS resources
+cd ..
+python -m pipeline.extract                    # Extract to S3
+python -m pipeline.create_athena_tables       # Register tables in Athena
+./venv/bin/dbt run --project-dir transform --profiles-dir transform
+./venv/bin/dbt test --project-dir transform --profiles-dir transform
+prefect cloud login && python -m pipeline.flow  # Full orchestrated run
 ```
 
 ## Design Decisions
@@ -234,7 +258,7 @@ make deploy         # Deploy Prefect worker to EKS
 At our data volume (~50K-100K rows/day), Redshift Serverless minimum costs exceed Athena's per-query pricing by 10-100x. Athena queries S3 Parquet directly — no server, no idle costs. We get columnar storage benefits (Parquet) and partitioning (Hive-style on S3) without warehouse management overhead.
 
 ### Why Prefect over Airflow?
-We already use Prefect in the PushMetrics platform (Noteflow). A Prefect worker is a single K8s Deployment vs Airflow's 3+ components (scheduler, webserver, database). Prefect Cloud provides scheduling and monitoring UI for free, eliminating self-hosted infrastructure. The pipeline is 3 tasks — Airflow's DAG complexity is unnecessary here.
+We already use Prefect in the PushMetrics platform. A Prefect flow is a single Python function vs Airflow's 3+ components (scheduler, webserver, database). Prefect Cloud provides scheduling and monitoring UI for free, eliminating self-hosted infrastructure. The pipeline is 3 tasks — Airflow's DAG complexity is unnecessary here.
 
 ### Why dlt over custom scripts?
 dlt handles schema evolution, incremental loading (merge/append strategies), and has native S3+Parquet destination support. Writing custom `psycopg2 → boto3 → parquet` code would require reimplementing all of this.
